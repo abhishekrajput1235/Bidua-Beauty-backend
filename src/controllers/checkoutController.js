@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const User = require("../models/Users");
 const Product = require("../models/Products");
 const Order = require("../models/Order");
+const PaymentHistory = require("../models/PaymentsHistory");
 
 const checkoutCart = async (req, res) => {
   const DEBUG = process.env.DEBUG_CHECKOUT === "true";
@@ -163,6 +164,18 @@ const checkoutCart = async (req, res) => {
     });
 
     await order.save({ session });
+
+    // Create a payment history record
+    const paymentHistory = new PaymentHistory({
+      user: user._id,
+      amount: totalAmount,
+      paymentMethod: paymentMethod,
+      paymentStatus: paymentStatus === 'Completed' ? 'success' : 'pending',
+      transactionId: bodyTransactionId || new mongoose.Types.ObjectId().toString(),
+      subscriptionType: 'Other', // Or determine based on context
+    });
+    await paymentHistory.save({ session });
+
 
     // clear cart
     user.cart = [];

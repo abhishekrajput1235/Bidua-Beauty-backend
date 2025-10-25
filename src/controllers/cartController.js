@@ -314,7 +314,7 @@ const getCart = async (req, res) => {
       user.cart.map(async (item) => {
         const product = await Product.findOne(
           { productId: item.productId },
-          "_id productId name description price b2bPrice sellingPrice discountPercentage gstPercentage shippingCharge category brand stock images avgRating numReviews isFeatured tags createdBy ratings createdAt updatedAt"
+          "_id productId name description price b2bPrice sellingPrice discountPercentage gstPercentage shippingCharge category brand stock images avgRating numReviews isFeatured tags createdBy ratings createdAt updatedAt units"
         );
 
         return {
@@ -440,4 +440,3 @@ module.exports = {
   removeFromCart,
   getCartSummary,
 };
-

@@ -44,8 +44,8 @@ const BusinessProfileSchema = new Schema(
     // ✅ Subscription fields
     subscriptionStatus: {
       type: String,
-      enum: ['active', 'expired'],
-      default: 'active',
+      enum: ['pending', 'active', 'expired'],
+      default: 'pending',
     },
     subscriptionStartDate: {
       type: Date,

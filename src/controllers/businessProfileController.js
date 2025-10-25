@@ -165,6 +165,33 @@ const deleteBusinessProfileById = async (req, res) => {
 
 
 
+const activateBusinessProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedProfile = await BusinessProfile.findByIdAndUpdate(
+      id,
+      {
+        subscriptionStatus: "active",
+        subscriptionStartDate: Date.now(),
+        subscriptionEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedProfile) {
+      return res.status(404).json({ message: "Business profile not found." });
+    }
+
+    return res.status(200).json({
+      message: "Business profile activated successfully.",
+      data: updatedProfile,
+    });
+  } catch (error) {
+    console.error("❌ Error activating business profile:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 module.exports = {
   createBusinessProfile,
   getAllBusinessProfiles,
@@ -172,4 +199,5 @@ module.exports = {
   getMyBusinessProfile,
   updateBusinessProfileById,
   deleteBusinessProfileById, 
+  activateBusinessProfile,
 };

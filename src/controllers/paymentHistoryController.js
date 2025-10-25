@@ -1,5 +1,5 @@
 // controllers/paymentHistoryController.js
-const PaymentHistory = require("../models/PaymentHistory");
+const PaymentHistory = require("../models/PaymentsHistory");
 const User = require("../models/Users");
 const BusinessProfile = require("../models/BusinessProfile");
 

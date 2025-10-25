@@ -27,6 +27,26 @@ const productSchema = new mongoose.Schema(
         buyer: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       },
     ],
+    stockHistory: [
+      {
+        date: {
+          type: Date,
+          default: Date.now,
+        },
+        type: {
+          type: String,
+          enum: ["initial", "purchase", "sale", "return", "adjustment"],
+          required: true,
+        },
+        quantity: {
+          type: Number,
+          required: true,
+        },
+        description: {
+          type: String,
+        },
+      },
+    ],
     images: [{ url: { type: String, required: true }, alt: String }],
     ratings: [
       {
@@ -69,10 +89,12 @@ productSchema.pre("save", async function (next) {
   // Calculate discount safely
   if (this.price > 0) {
     if (this.sellingPrice && this.sellingPrice > 0) {
-      this.discountPercentage = Math.round(((this.price - this.sellingPrice) / this.price) * 100);
+      const discount = ((this.price - this.sellingPrice) / this.price) * 100;
+      this.discountPercentage = Math.max(0, Math.round(discount));
     } else if (this.b2bPrice && this.b2bPrice > 0) {
       this.sellingPrice = this.b2bPrice;
-      this.discountPercentage = Math.round(((this.price - this.sellingPrice) / this.price) * 100);
+      const discount = ((this.price - this.sellingPrice) / this.price) * 100;
+      this.discountPercentage = Math.max(0, Math.round(discount));
     } else {
       this.discountPercentage = 0;
     }
@@ -143,6 +165,38 @@ productSchema.methods.generateUnits = async function () {
   // No change
   return this;
 };
+
+productSchema.methods.sell = async function (quantity, orderId) {
+    if (quantity <= 0) {
+      throw new Error("Quantity must be a positive number.");
+    }
+  
+    const availableUnits = this.units.filter(u => !u.isSold);
+    const stockAvailable = this.stock - availableUnits.length;
+  
+    if (quantity > availableUnits.length + stockAvailable) {
+      throw new Error("Not enough stock.");
+    }
+  
+    const serialsToSell = availableUnits.slice(0, quantity);
+    const nonSerializedQty = Math.max(0, quantity - serialsToSell.length);
+  
+    for (const unit of serialsToSell) {
+      unit.isSold = true;
+    }
+  
+    this.stock -= quantity;
+    if (this.stock < 0) this.stock = 0;
+    if (this.stock === 0) this.inStock = false;
+  
+    this.stockHistory.push({
+      type: "sale",
+      quantity: -quantity,
+      description: `Order #${orderId}`,
+    });
+  
+    return this.save();
+  };
 
 // ----------------------
 // Rating calc unchanged but ensure safe division

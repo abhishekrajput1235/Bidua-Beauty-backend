@@ -146,16 +146,22 @@ allowedFields.forEach((field) => {
       const newStock = parseInt(updates.stock, 10);
       if (isNaN(newStock)) return res.status(400).json({ message: "Stock must be a number" });
       if (newStock < 0) return res.status(400).json({ message: "Stock cannot be negative" });
-      product.stock = newStock;
-      await product.generateUnits(); // Update units array
+
+      // Only generate units if the stock has actually changed
+      if (newStock !== product.stock) {
+        product.stock = newStock;
+        await product.generateUnits(); // Update units array
+      }
     }
 
     // Recalculate discount
     if (product.price && product.sellingPrice) {
-      product.discountPercentage = Math.round(((product.price - product.sellingPrice) / product.price) * 100);
+      const discount = ((product.price - product.sellingPrice) / product.price) * 100;
+      product.discountPercentage = Math.max(0, Math.round(discount));
     } else if (product.price && product.b2bPrice) {
       product.sellingPrice = product.b2bPrice;
-      product.discountPercentage = Math.round(((product.price - product.sellingPrice) / product.price) * 100);
+      const discount = ((product.price - product.sellingPrice) / product.price) * 100;
+      product.discountPercentage = Math.max(0, Math.round(discount));
     } else {
       product.discountPercentage = 0;
     }
@@ -164,6 +170,9 @@ allowedFields.forEach((field) => {
     res.status(200).json({ message: "Product updated successfully", product });
   } catch (err) {
     console.error("❌ updateProduct error:", err);
+    if (err.message === "Cannot reduce stock below sold units") {
+      return res.status(400).json({ message: err.message });
+    }
     res.status(500).json({ message: "Server error" });
   }
 };

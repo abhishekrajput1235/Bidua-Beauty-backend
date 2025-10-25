@@ -9,8 +9,6 @@ const checkoutCart = async (req, res) => {
   const session = await mongoose.startSession();
   await session.startTransaction();
 
-  const assignedUnitsForRollback = []; // { productId, serials: [] }
-
   try {
     const userId = req.user?.id || req.user?._id;
     if (!userId) {
@@ -19,7 +17,7 @@ const checkoutCart = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized: missing user id" });
     }
 
-    const { paymentMethod: bodyPaymentMethod, transactionId: bodyTransactionId, shippingAddress: bodyShippingAddress } = req.body || {};
+    const { paymentMethod: bodyPaymentMethod, transactionId: bodyTransactionId, shippingAddress: bodyShippingAddress, deliveryOption } = req.body || {};
 
     const user = await User.findById(userId).session(session).populate("cart.product");
     if (!user) {
@@ -39,78 +37,53 @@ const checkoutCart = async (req, res) => {
     let totalShipping = 0;
     let totalGst = 0;
 
+    const order = new Order({
+        user: user._id,
+        items: [],
+        subTotal: 0,
+        shippingCharges: 0,
+        gstAmount: 0,
+        totalAmount: 0,
+        payment: {
+            method: bodyPaymentMethod || "COD",
+            status: bodyPaymentMethod === "COD" ? "Pending" : "Completed",
+            transactionId: bodyTransactionId || null,
+        },
+        shippingAddress: deliveryOption === 'shipping' ? {
+            fullName: bodyShippingAddress.fullName || user.name,
+            phone: bodyShippingAddress.phone || user.phone,
+            street: bodyShippingAddress.street,
+            city: bodyShippingAddress.city,
+            state: bodyShippingAddress.state,
+            postalCode: bodyShippingAddress.postalCode,
+            country: bodyShippingAddress.country || 'India',
+        } : null,
+        status: "Processing",
+    });
+
     for (const cartItem of user.cart) {
-      // Resolve product id
       const productRef = cartItem.product?._id || cartItem.productId;
       if (!productRef) continue;
 
-      // Fetch product in session
       const product = await Product.findById(productRef).session(session);
       if (!product) continue;
 
-      // Defensive: coerce stock
-      product.stock = Number(product.stock || 0);
+      const qtyRequested = Math.max(1, Number(cartItem.quantity || 1));
+      
+      const availableUnits = product.units.filter(u => !u.isSold).length;
+      const stockAvailable = product.stock - availableUnits;
+      const totalAvailable = availableUnits + stockAvailable;
 
-      // If no stock and no units -> skip
-      if ((product.stock <= 0) && (!Array.isArray(product.units) || product.units.length === 0)) continue;
-
-      let qtyRequested = Math.max(1, Number(cartItem.quantity || 1));
-      let qtyToUse = 0;
-      const serialsAssigned = [];
-
-      // --- PRIORITIZE SERIALIZED UNITS ---
-      if (Array.isArray(product.units) && product.units.length > 0) {
-        // find indices of available units (explicitly check isSold === false)
-        const availableUnitIndices = [];
-        for (let i = 0; i < product.units.length; i++) {
-          // treat undefined isSold as available (backfill later)
-          const isSold = product.units[i].isSold === true;
-          if (!isSold) availableUnitIndices.push(i);
-        }
-
-        if (availableUnitIndices.length > 0) {
-          qtyToUse = Math.min(qtyRequested, availableUnitIndices.length);
-          // mark the first qtyToUse units as sold and collect serials
-          for (let k = 0; k < qtyToUse; k++) {
-            const idx = availableUnitIndices[k];
-            // mark sold
-            product.units[idx].isSold = true;
-            // collect serial value (defensive: fallback to unit._id if serial missing)
-            const s = product.units[idx].serial || (product.units[idx]._id && product.units[idx]._id.toString()) || null;
-            if (s) serialsAssigned.push(s);
-          }
-
-          // record rollback info
-          if (serialsAssigned.length > 0) {
-            assignedUnitsForRollback.push({
-              productId: product._id,
-              serials: serialsAssigned.slice(),
-            });
-          }
-        }
+      if (qtyRequested > totalAvailable) {
+          throw new Error(`Not enough stock for product ${product.name}. Requested: ${qtyRequested}, Available: ${totalAvailable}`);
       }
 
-      // --- FALLBACK TO STOCK IF NOT ENOUGH SERIALS ---
-      if (qtyToUse < qtyRequested) {
-        const remainingNeeded = qtyRequested - qtyToUse;
-        const stockAvailable = Math.max(0, Number(product.stock || 0));
-        const fromStock = Math.min(remainingNeeded, stockAvailable);
-        qtyToUse += fromStock;
-      }
+      await product.sell(qtyRequested, order._id);
 
-      if (qtyToUse <= 0) continue; // nothing to add
-
-      // decrement stock by qtyToUse (if stock exists)
-      product.stock = Math.max(0, Number(product.stock || 0) - qtyToUse);
-      if (product.stock <= 0) product.inStock = false;
-
-      // save product changes under session
-      await product.save({ session });
-
-      const itemPrice = product.sellingPrice || product.price || 0;
-      const itemSubTotal = itemPrice * qtyToUse;
+      const itemPrice = user.role === 'b2b' ? product.b2bPrice : product.sellingPrice || product.price || 0;
+      const itemSubTotal = itemPrice * qtyRequested;
       const itemGst = itemSubTotal * ((product.gstPercentage || 0) / 100);
-      const itemShipping = (product.shippingCharge || 0) * qtyToUse;
+      const itemShipping = (product.shippingCharge || 0) * qtyRequested;
 
       subTotal += itemSubTotal;
       totalGst += itemGst;
@@ -118,8 +91,8 @@ const checkoutCart = async (req, res) => {
 
       orderItems.push({
         product: product._id,
-        quantity: qtyToUse,
-        serials: serialsAssigned,
+        quantity: qtyRequested,
+        serials: product.units.filter(u => u.isSold).slice(-qtyRequested).map(u => u.serial),
         price: itemPrice,
         gstAmount: itemGst,
         shippingCharge: itemShipping,
@@ -134,50 +107,24 @@ const checkoutCart = async (req, res) => {
       return res.status(400).json({ message: "No available items in cart for checkout" });
     }
 
-    // Payment & shipping
-    const paymentMethod = bodyPaymentMethod || "COD";
-    const paymentStatus = paymentMethod === "COD" ? "Pending" : "Completed";
-    const shippingAddress = (user.address && user.address.find(a => a.isDefault)) || bodyShippingAddress || {};
-
-    const order = new Order({
-      user: user._id,
-      items: orderItems,
-      subTotal,
-      shippingCharges: totalShipping,
-      gstAmount: totalGst,
-      totalAmount,
-      payment: {
-        method: paymentMethod,
-        status: paymentStatus,
-        transactionId: bodyTransactionId || null,
-      },
-      shippingAddress: {
-        fullName: bodyShippingAddress.fullName || user.name,
-        phone: bodyShippingAddress.phone || user.phone,
-        street: bodyShippingAddress.street,
-        city: bodyShippingAddress.city,
-        state: bodyShippingAddress.state,
-        postalCode: bodyShippingAddress.postalCode,
-        country: bodyShippingAddress.country || 'India',
-      },
-      status: "Processing",
-    });
+    order.items = orderItems;
+    order.subTotal = subTotal;
+    order.shippingCharges = totalShipping;
+    order.gstAmount = totalGst;
+    order.totalAmount = totalAmount;
 
     await order.save({ session });
 
-    // Create a payment history record
     const paymentHistory = new PaymentHistory({
       user: user._id,
       amount: totalAmount,
-      paymentMethod: paymentMethod,
-      paymentStatus: paymentStatus === 'Completed' ? 'success' : 'pending',
-      transactionId: bodyTransactionId || new mongoose.Types.ObjectId().toString(),
-      subscriptionType: 'Other', // Or determine based on context
+      paymentMethod: order.payment.method,
+      paymentStatus: order.payment.status === 'Completed' ? 'success' : 'pending',
+      transactionId: !order.payment.transactionId || order.payment.transactionId === 'shipping' ? new mongoose.Types.ObjectId().toString() : order.payment.transactionId,
+      subscriptionType: 'Other',
     });
     await paymentHistory.save({ session });
 
-
-    // clear cart
     user.cart = [];
     await user.save({ session });
 
@@ -186,23 +133,6 @@ const checkoutCart = async (req, res) => {
 
     return res.status(200).json({ message: "✅ Checkout successful", order });
   } catch (err) {
-    // rollback assigned units (unmark isSold)
-    try {
-      if (assignedUnitsForRollback.length > 0) {
-        for (const rec of assignedUnitsForRollback) {
-          const prod = await Product.findById(rec.productId).session(session);
-          if (!prod) continue;
-          for (const s of rec.serials) {
-            const unit = prod.units.find(u => (u.serial && u.serial === s) || (u._id && u._id.toString() === s));
-            if (unit) unit.isSold = false;
-          }
-          await prod.save({ session });
-        }
-      }
-    } catch (rbErr) {
-      console.error("Rollback error:", rbErr);
-    }
-
     await session.abortTransaction();
     session.endSession();
     console.error("checkout error:", err);

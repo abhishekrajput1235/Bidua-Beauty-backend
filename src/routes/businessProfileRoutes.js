@@ -8,6 +8,7 @@ const {
   getMyBusinessProfile,
   updateBusinessProfileById,
   deleteBusinessProfileById,
+  activateBusinessProfile,
 } = require('../controllers/businessProfileController');
 
 const { protect } = require('../middlewares/authMiddleware'); // ✅ import protect middleware
@@ -23,6 +24,9 @@ router.get('/business-profile/:id', getBusinessProfileById);
 
 // ✅ Update Business Profile (only logged-in users)
 router.put('/business-profile/:id', protect, updateBusinessProfileById);
+
+// ✅ Activate Business Profile (only logged-in users)
+router.put('/business-profile/activate/:id', protect, activateBusinessProfile);
 
 // ✅ Delete Business Profile (only admin ideally)
 router.delete('/business-profile/:id', protect, deleteBusinessProfileById);

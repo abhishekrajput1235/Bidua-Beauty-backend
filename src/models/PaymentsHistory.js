@@ -14,6 +14,16 @@ const PaymentHistorySchema = new Schema(
       ref: "BusinessProfile", // Optional link if payment is for a business profile
       required: false,
     },
+    paymentFor: {
+      type: String,
+      enum: ["subscription", "product"],
+      required: true,
+    },
+    order: {
+      type: Schema.Types.ObjectId,
+      ref: "Order", // Link to the order if payment is for a product
+      required: function() { return this.paymentFor === 'product'; },
+    },
     amount: {
       type: Number,
       required: true,

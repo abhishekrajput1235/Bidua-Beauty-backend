@@ -58,8 +58,36 @@ const getOrderById = async (req, res) => {
   }
 };
 
+const createBrppOrder = async (req, res) => {
+  try {
+    const { amount, userId } = req.body;
+
+    const newOrder = new Order({
+      user: userId,
+      totalAmount: amount,
+      subTotal: amount,
+      shippingCharges: 0,
+      gstAmount: 0,
+      items: [],
+      payment: {
+        method: "Online",
+        status: "Pending",
+      },
+      status: "Pending",
+    });
+
+    const savedOrder = await newOrder.save();
+
+    res.status(201).json({ order_id: savedOrder._id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 module.exports = {
   getUserOrders,
   getAllOrders,
   getOrderById,
+  createBrppOrder,
 };

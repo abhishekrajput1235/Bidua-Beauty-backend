@@ -18,10 +18,16 @@ const createPayment = async (req, res) => {
       subscriptionType,
       subscriptionStartDate,
       subscriptionEndDate,
+      paymentFor, // new
+      orderId, // new
     } = req.body;
 
-    if (!amount || !paymentMethod || !transactionId) {
+    if (!amount || !paymentMethod || !transactionId || !paymentFor) {
       return res.status(400).json({ message: "Required fields missing." });
+    }
+
+    if (paymentFor === 'product' && !orderId) {
+        return res.status(400).json({ message: "Order ID is required for product payments." });
     }
 
     const payment = new PaymentHistory({
@@ -35,6 +41,8 @@ const createPayment = async (req, res) => {
       subscriptionType: subscriptionType || "BRPP Annual",
       subscriptionStartDate: subscriptionStartDate || Date.now(),
       subscriptionEndDate: subscriptionEndDate || new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
+      paymentFor,
+      order: orderId,
     });
 
     const savedPayment = await payment.save();

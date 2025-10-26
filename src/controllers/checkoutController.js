@@ -119,9 +119,11 @@ const checkoutCart = async (req, res) => {
       user: user._id,
       amount: totalAmount,
       paymentMethod: order.payment.method,
-      paymentStatus: order.payment.status === 'Completed' ? 'success' : 'pending',
+      paymentStatus: order.payment.status === 'Completed' ? 'completed' : 'pending',
       transactionId: !order.payment.transactionId || order.payment.transactionId === 'shipping' ? new mongoose.Types.ObjectId().toString() : order.payment.transactionId,
       subscriptionType: 'Other',
+      paymentFor: 'product',
+      order: order._id,
     });
     await paymentHistory.save({ session });
 

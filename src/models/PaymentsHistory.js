@@ -39,7 +39,7 @@ const PaymentHistorySchema = new Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ["pending", "success", "failed", "refunded"],
+      enum: ["pending", "completed", "failed", "refunded"],
       default: "pending",
     },
     transactionId: {

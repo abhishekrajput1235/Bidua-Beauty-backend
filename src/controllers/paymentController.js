@@ -44,7 +44,7 @@ const verifyPayment = async (req, res) => {
       amount: order.totalAmount,
       currency: "INR",
       paymentMethod: "Other", // You might want to get this from the client
-      paymentStatus: "success",
+      paymentStatus: "completed",
       transactionId: razorpay_payment_id,
     });
     await paymentHistory.save();

@@ -21,6 +21,8 @@ router.post("/login", loginUser);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password/:token", resetPassword);
 router.put("/users/:id/role", protect, adminOnly, updateUserRole);
+// router.put("/users/:id/role",  updateUserRole);
+
 
 
 // Profile

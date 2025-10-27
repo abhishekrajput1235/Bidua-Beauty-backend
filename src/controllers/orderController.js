@@ -9,6 +9,7 @@ const { razorpayInstance } = require("../config/razorpay");
 
 
 
+
 const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -30,7 +31,7 @@ const createOrder = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Helper to normalize incoming strings to canonical enum values
+    // Normalize methods
     function normalizePaymentMethod(m) {
       if (!m || typeof m !== "string") return "COD";
       const s = m.trim().toLowerCase();
@@ -60,12 +61,10 @@ const createOrder = async (req, res) => {
     for (const cartItem of cart) {
       let product;
 
-      // Try finding by MongoDB _id if valid ObjectId
       if (mongoose.Types.ObjectId.isValid(cartItem.productId)) {
         product = await Product.findById(cartItem.productId).session(session);
       }
 
-      // If not found, try finding by custom productId field
       if (!product) {
         product = await Product.findOne({ productId: cartItem.productId }).session(session);
       }
@@ -76,8 +75,6 @@ const createOrder = async (req, res) => {
 
       const qtyRequested = cartItem.quantity;
 
-      // Update stock with a temporary order description
-      // If product.sell supports sessions, consider adding the session param inside the method
       await product.sell(qtyRequested, "temp_order_id");
 
       const itemPrice = user.role === "b2b" ? product.b2bPrice : product.sellingPrice;
@@ -89,7 +86,6 @@ const createOrder = async (req, res) => {
       totalGst += itemGst;
       totalShipping += itemShipping;
 
-      // Pick the last sold units serials
       const serials = product.units
         .filter((u) => u.isSold)
         .slice(-qtyRequested)
@@ -102,15 +98,11 @@ const createOrder = async (req, res) => {
         price: itemPrice,
         gstAmount: itemGst,
         shippingCharge: itemShipping,
-        status: "Processing", // item-level status
+        status: "Processing",
       });
     }
 
     const totalAmount = subTotal + totalGst + totalShipping;
-
-    // Determine order-level status
-    // For online payments we'll mark as "Pending Payment" until Razorpay confirms
-    // For COD, mark as "Processing" (you can change behavior as desired)
     const orderLevelStatus = normalizedPaymentMethod === "COD" ? "Processing" : "Pending Payment";
 
     const orderData = {
@@ -122,10 +114,14 @@ const createOrder = async (req, res) => {
       totalAmount,
       payment: {
         method: normalizedPaymentMethod,
-        status: normalizePaymentStatus(req.body?.payment?.status || (normalizedPaymentMethod === "COD" ? "Pending" : "Pending")), // defaults to Pending
+        status: normalizePaymentStatus(
+          req.body?.payment?.status ||
+          (normalizedPaymentMethod === "COD" ? "Pending" : "Pending")
+        ),
       },
       shippingAddress: deliveryOption === "shipping" ? shippingAddress : null,
-      status: orderLevelStatus,
+      orderStatus: orderLevelStatus,
+      deliveryOption: deliveryOption,
     };
 
     if (normalizedPaymentMethod !== "COD") {
@@ -156,16 +152,24 @@ const createOrder = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    res.status(201).json({ 
-      message: "Order created successfully", 
-      order, 
-      razorpayOrderId: order.payment.razorpayOrderId 
+    // ✅ CLEAR CART after successful order creation
+    // If you store the cart in the User model:
+    await User.findByIdAndUpdate(userId, { $set: { cart: [] } });
+
+    res.status(201).json({
+      message: "Order created successfully and cart cleared",
+      order,
+      razorpayOrderId: order.payment.razorpayOrderId,
     });
+
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
     console.error("Create order error:", error);
-    res.status(500).json({ message: "Server error during order creation", error: error.message });
+    res.status(500).json({
+      message: "Server error during order creation",
+      error: error.message,
+    });
   }
 };
 
@@ -240,7 +244,7 @@ const createBrppOrder = async (req, res) => {
         method: "Online",
         status: "Pending",
       },
-      status: "Pending",
+      orderStatus: "Pending Payment",
     });
 
     const savedOrder = await newOrder.save();
@@ -281,8 +285,8 @@ const updateProductStatusInOrder = async (req, res) => {
 
     // Update order status if all items delivered
     const allDelivered = order.items.every(i => i.status === "Delivered");
-    if (allDelivered && order.status !== "Delivered") {
-      order.status = "Delivered";
+    if (allDelivered && order.orderStatus !== "Delivered") {
+      order.orderStatus = "Delivered";
       await order.save();
     }
 
@@ -290,7 +294,7 @@ const updateProductStatusInOrder = async (req, res) => {
       message: "Item and Product status updated successfully",
       item,
       product: updatedProduct,
-      orderStatus: order.status,
+      orderStatus: order.orderStatus,
     });
   } catch (err) {
     console.error("Error updating status:", err);

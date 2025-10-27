@@ -57,6 +57,11 @@ const orderSchema = new mongoose.Schema(
       enum: ["Pending Payment", "Processing", "Shipped", "Delivered", "Cancelled"],
       default: "Processing",
     },
+    deliveryOption: {
+      type: String,
+      enum: ["shipping", "warehouse"],
+      default: "shipping",
+    },
     shippingAddress: {
       fullName: String,
       phone: String,
@@ -69,5 +74,8 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+
+
 
 module.exports = mongoose.model("Order", orderSchema);

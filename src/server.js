@@ -36,7 +36,7 @@ connectDB()
 
 // Routes
 app.use('/api/v1', userRoutes);
-app.use('/api/v1',businessProfileRoutes);
+app.use('/api/v1/b2b',businessProfileRoutes);
 app.use('/api/v1/products',productRoutes);
 app.use('/api/v1/cart',cartRoutes);
 app.use('/api/v1/order',orderRoutes);

@@ -1,7 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const { protect, authorizeRoles } = require("../middlewares/authMiddleware");
-const { getUserOrders, getAllOrders, getOrderById, createBrppOrder, updateProductStatusInOrder } = require("../controllers/orderController");
+const { createOrder, getUserOrders, getAllOrders, getOrderById, createBrppOrder, updateProductStatusInOrder } = require("../controllers/orderController");
+
+// Create a new order
+router.post("/create", protect, createOrder);
 
 // Create BRPP order
 router.post("/brpp", protect, createBrppOrder);

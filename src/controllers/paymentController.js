@@ -1,65 +1,77 @@
-const { razorpayInstance } = require("../config/razorpay");
-const crypto = require("crypto");
-const { successResponse, errorResponse } = require("../utils/responseHandler");
-const PaymentHistory = require("../models/PaymentsHistory");
 const Order = require("../models/Order");
+const mongoose = require("mongoose");
+const crypto = require("crypto");
+const { razorpayInstance } = require("../config/razorpay");
 
-
-// ✅ Create Razorpay Order
-const createOrder = async (req, res) => {
-  try {
-    const { amount, currency = "INR", receipt } = req.body;
-
-    const options = {
-      amount: amount * 100, // amount in paise
-      currency,
-      receipt: receipt || `receipt_${Date.now()}`
-    };
-
-    const order = await razorpayInstance.orders.create(options);
-    successResponse(res, "Order created successfully", { order });
-  } catch (error) {
-    errorResponse(res, error.message);
+const confirmCodOrder = async (req, res) => {
+  const { orderId } = req.body;
+  if (!mongoose.Types.ObjectId.isValid(orderId)) {
+    return res.status(400).json({ message: "Invalid order ID" });
   }
-};
 
-// ✅ Verify Payment Signature
-const verifyPayment = async (req, res) => {
   try {
-    if (!req.isVerified) {
-      return errorResponse(res, "Signature verification failed");
-    }
-
-    const { razorpay_payment_id, order_id } = req.body;
-
-    // Find the order
-    const order = await Order.findById(order_id);
+    const order = await Order.findById(orderId);
     if (!order) {
-      return errorResponse(res, "Order not found", 404);
+      return res.status(404).json({ message: "Order not found" });
     }
 
-    // Create payment history
-    const paymentHistory = new PaymentHistory({
-      user: order.user,
-      amount: order.totalAmount,
-      currency: "INR",
-      paymentMethod: "Other", // You might want to get this from the client
-      paymentStatus: "completed",
-      transactionId: razorpay_payment_id,
-    });
-    await paymentHistory.save();
-
-    // Update order
-    order.payment.status = "Completed";
-    order.payment.transactionId = razorpay_payment_id;
     order.status = "Processing";
-    await order.save();
+    order.payment.status = "Pending"; // For COD, payment is pending until delivery
 
+    const updatedOrder = await order.save();
+    res.status(200).json({ message: "Order confirmed for Cash on Delivery", order: updatedOrder });
 
-    successResponse(res, "Payment verified and order updated successfully", { order });
   } catch (error) {
-    errorResponse(res, error.message);
+    console.error("COD confirmation error:", error);
+    res.status(500).json({ message: "Server error during COD confirmation", error: error.message });
   }
 };
 
-module.exports = { createOrder, verifyPayment };
+const verifyPayment = async (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return res.status(400).json({ message: "Missing Razorpay payment details" });
+  }
+
+  const body = razorpay_order_id + "|" + razorpay_payment_id;
+
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(body.toString())
+    .digest("hex");
+
+  const isAuthentic = expectedSignature === razorpay_signature;
+
+  if (isAuthentic) {
+    try {
+      const order = await Order.findOne({ "payment.razorpayOrderId": razorpay_order_id });
+
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      order.payment.transactionId = razorpay_payment_id;
+      order.payment.status = "Completed";
+      order.status = "Processing";
+      await order.save();
+
+      res.status(200).json({ message: "Payment verified successfully", order });
+    } catch (error) {
+      console.error("Payment verification error:", error);
+      res.status(500).json({ message: "Server error during payment verification", error: error.message });
+    }
+  } else {
+    res.status(400).json({ message: "Invalid signature" });
+  }
+};
+
+const getRazorpayKey = (req, res) => {
+  res.status(200).json({ key: process.env.RAZORPAY_KEY_ID });
+};
+
+module.exports = {
+  confirmCodOrder,
+  verifyPayment,
+  getRazorpayKey,
+};

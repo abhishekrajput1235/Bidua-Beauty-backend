@@ -1,10 +1,176 @@
 const Order = require("../models/Order");
 const mongoose = require("mongoose");
 const Product = require("../models/Products");
+const User = require("../models/Users");
+const { razorpayInstance } = require("../config/razorpay");
 
-// @desc    Get orders of logged-in user
-// @route   GET /api/orders/my
-// @access  Private
+
+
+
+
+
+const createOrder = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const userId = req.user?.id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized: missing user id" });
+    }
+
+    const { cart, shippingAddress, paymentMethod, deliveryOption } = req.body;
+
+    if (!cart || cart.length === 0) {
+      return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    const user = await User.findById(userId).session(session);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Helper to normalize incoming strings to canonical enum values
+    function normalizePaymentMethod(m) {
+      if (!m || typeof m !== "string") return "COD";
+      const s = m.trim().toLowerCase();
+      if (s === "upi") return "UPI";
+      if (s === "credit" || s === "credit card") return "Credit Card";
+      if (s === "debit" || s === "debit card") return "Debit Card";
+      if (s === "net" || s === "net banking") return "Net Banking";
+      if (s === "cod" || s === "cashondelivery" || s === "cash on delivery") return "COD";
+      return "Other";
+    }
+
+    function normalizePaymentStatus(s) {
+      if (!s || typeof s !== "string") return "Pending";
+      const v = s.trim().toLowerCase();
+      if (v === "completed" || v === "success") return "Completed";
+      if (v === "failed" || v === "error") return "Failed";
+      return "Pending";
+    }
+
+    const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
+
+    const orderItems = [];
+    let subTotal = 0;
+    let totalShipping = 0;
+    let totalGst = 0;
+
+    for (const cartItem of cart) {
+      let product;
+
+      // Try finding by MongoDB _id if valid ObjectId
+      if (mongoose.Types.ObjectId.isValid(cartItem.productId)) {
+        product = await Product.findById(cartItem.productId).session(session);
+      }
+
+      // If not found, try finding by custom productId field
+      if (!product) {
+        product = await Product.findOne({ productId: cartItem.productId }).session(session);
+      }
+
+      if (!product) {
+        throw new Error(`Product with ID or productId "${cartItem.productId}" not found`);
+      }
+
+      const qtyRequested = cartItem.quantity;
+
+      // Update stock with a temporary order description
+      // If product.sell supports sessions, consider adding the session param inside the method
+      await product.sell(qtyRequested, "temp_order_id");
+
+      const itemPrice = user.role === "b2b" ? product.b2bPrice : product.sellingPrice;
+      const itemSubTotal = itemPrice * qtyRequested;
+      const itemGst = itemSubTotal * (product.gstPercentage / 100);
+      const itemShipping = product.shippingCharge * qtyRequested;
+
+      subTotal += itemSubTotal;
+      totalGst += itemGst;
+      totalShipping += itemShipping;
+
+      // Pick the last sold units serials
+      const serials = product.units
+        .filter((u) => u.isSold)
+        .slice(-qtyRequested)
+        .map((u) => u.serial);
+
+      orderItems.push({
+        product: product._id,
+        quantity: qtyRequested,
+        serials,
+        price: itemPrice,
+        gstAmount: itemGst,
+        shippingCharge: itemShipping,
+        status: "Processing", // item-level status
+      });
+    }
+
+    const totalAmount = subTotal + totalGst + totalShipping;
+
+    // Determine order-level status
+    // For online payments we'll mark as "Pending Payment" until Razorpay confirms
+    // For COD, mark as "Processing" (you can change behavior as desired)
+    const orderLevelStatus = normalizedPaymentMethod === "COD" ? "Processing" : "Pending Payment";
+
+    const orderData = {
+      user: userId,
+      items: orderItems,
+      subTotal,
+      shippingCharges: totalShipping,
+      gstAmount: totalGst,
+      totalAmount,
+      payment: {
+        method: normalizedPaymentMethod,
+        status: normalizePaymentStatus(req.body?.payment?.status || (normalizedPaymentMethod === "COD" ? "Pending" : "Pending")), // defaults to Pending
+      },
+      shippingAddress: deliveryOption === "shipping" ? shippingAddress : null,
+      status: orderLevelStatus,
+    };
+
+    if (normalizedPaymentMethod !== "COD") {
+      const razorpayOrder = await razorpayInstance.orders.create({
+        amount: Math.round(totalAmount * 100),
+        currency: "INR",
+        receipt: `receipt_order_${new Date().getTime()}`,
+      });
+      orderData.payment.razorpayOrderId = razorpayOrder.id;
+    }
+
+    const order = new Order(orderData);
+    await order.save({ session });
+
+    // Replace temp_order_id with real order _id in product stock history
+    for (const item of order.items) {
+      const product = await Product.findById(item.product).session(session);
+      if (product) {
+        product.stockHistory.forEach((history) => {
+          if (history.description === "Order #temp_order_id") {
+            history.description = `Order #${order._id}`;
+          }
+        });
+        await product.save({ session });
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({ 
+      message: "Order created successfully", 
+      order, 
+      razorpayOrderId: order.payment.razorpayOrderId 
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Create order error:", error);
+    res.status(500).json({ message: "Server error during order creation", error: error.message });
+  }
+};
+
+
+
 const getUserOrders = async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user.id }).populate("user").populate("items.product");
@@ -134,6 +300,7 @@ const updateProductStatusInOrder = async (req, res) => {
 
 
 module.exports = {
+  createOrder,
   getUserOrders,
   getAllOrders,
   getOrderById,

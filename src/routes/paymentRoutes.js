@@ -1,10 +1,15 @@
 const express = require("express");
-const { createOrder, verifyPayment } = require("../controllers/paymentController");
-const { verifyRazorpaySignature } = require("../middlewares/verifySignature");
-
 const router = express.Router();
+const { protect } = require("../middlewares/authMiddleware");
+const { confirmCodOrder, verifyPayment, getRazorpayKey } = require("../controllers/paymentController");
 
-router.post("/create-order", createOrder);
-router.post("/verify-payment", verifyRazorpaySignature, verifyPayment);
+// Confirm a Cash on Delivery order
+router.post("/confirm-cod", protect, confirmCodOrder);
+
+// Verify an online payment
+router.post("/verify-payment", protect, verifyPayment);
+
+// Get Razorpay Key
+router.get("/get-key", protect, getRazorpayKey);
 
 module.exports = router;

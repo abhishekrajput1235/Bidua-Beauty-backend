@@ -7,7 +7,6 @@ const businessProfileRoutes = require('./routes/businessProfileRoutes');
 const productRoutes = require("./routes/productRoutes")
 const cartRoutes = require('./routes/cartRoutes');
 const orderRoutes = require('./routes/orderRoutes');
-const checkOutRoutes = require('./routes/checkoutRoutes')
 const walletRoutes = require('./routes/walletRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const paymentHistoryRoutes = require('./routes/paymentHistoryRoutes');
@@ -41,7 +40,6 @@ app.use('/api/v1',businessProfileRoutes);
 app.use('/api/v1/products',productRoutes);
 app.use('/api/v1/cart',cartRoutes);
 app.use('/api/v1/order',orderRoutes);
-app.use('/api/v1/checkout',checkOutRoutes)
 app.use('/api/v1/wallet', walletRoutes);
 app.use("/api/v1/payment", paymentRoutes);
 app.use("/api/v1/payment-history", paymentHistoryRoutes);

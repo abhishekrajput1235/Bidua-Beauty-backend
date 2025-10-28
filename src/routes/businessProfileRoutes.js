@@ -16,7 +16,7 @@ const {
 const { protect } = require('../middlewares/authMiddleware'); // adjust path if different
 
 // Create Business Profile (only logged-in users)
-router.post('/business-profile', createBusinessProfile);
+router.post('/business-profile', protect, createBusinessProfile);
 
 // Frontend calls this after Razorpay Checkout success to verify signature & activate
 router.post('/business-profile/verify', protect, verifyPaymentAndActivate);

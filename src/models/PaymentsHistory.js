@@ -1,4 +1,3 @@
-// models/PaymentHistory.js
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
@@ -6,12 +5,12 @@ const PaymentHistorySchema = new Schema(
   {
     user: {
       type: Schema.Types.ObjectId,
-      ref: "User", // Link to the user who made the payment
+      ref: "User",
       required: true,
     },
     businessProfile: {
       type: Schema.Types.ObjectId,
-      ref: "BusinessProfile", // Optional link if payment is for a business profile
+      ref: "BusinessProfile",
       required: false,
     },
     paymentFor: {
@@ -20,9 +19,11 @@ const PaymentHistorySchema = new Schema(
       required: true,
     },
     order: {
-      type: Schema.Types.ObjectId,
-      ref: "Order", // Link to the order if payment is for a product
-      required: function() { return this.paymentFor === 'product'; },
+      type: String,
+      ref: "Order",
+      required: function () {
+        return this.paymentFor === "product";
+      },
     },
     amount: {
       type: Number,
@@ -34,16 +35,24 @@ const PaymentHistorySchema = new Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["UPI", "Credit Card", "Debit Card", "Net Banking", "COD", "Other"],
+      enum: [
+        "UPI",
+        "Credit Card",
+        "Debit Card",
+        "Net Banking",
+        "COD",
+        "Razorpay", // ✅ added here
+        "Other",
+      ],
       required: true,
     },
     paymentStatus: {
       type: String,
-      enum: ["pending", "completed", "failed", "refunded"],
+      enum: ["pending", "success", "failed", "refunded"],
       default: "pending",
     },
     transactionId: {
-      type: String, // e.g., Razorpay or gateway transaction ID
+      type: String,
       required: true,
       unique: true,
     },
@@ -60,11 +69,11 @@ const PaymentHistorySchema = new Schema(
       type: Date,
       default: function () {
         const now = new Date();
-        return new Date(now.setFullYear(now.getFullYear() + 1)); // 1-year subscription by default
+        return new Date(now.setFullYear(now.getFullYear() + 1));
       },
     },
   },
-  { timestamps: true } // Automatically adds createdAt & updatedAt
+  { timestamps: true }
 );
 
 module.exports = mongoose.model("PaymentHistory", PaymentHistorySchema);

@@ -8,8 +8,6 @@ const { razorpayInstance } = require("../config/razorpay");
 
 
 
-
-
 const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -74,8 +72,7 @@ const createOrder = async (req, res) => {
       }
 
       const qtyRequested = cartItem.quantity;
-
-      await product.sell(qtyRequested, "temp_order_id");
+      const isB2BWarehouse = user.role === 'b2b' && deliveryOption === 'warehouse';
 
       const itemPrice = user.role === "b2b" ? product.b2bPrice : product.sellingPrice;
       const itemSubTotal = itemPrice * qtyRequested;
@@ -91,15 +88,31 @@ const createOrder = async (req, res) => {
         .slice(-qtyRequested)
         .map((u) => u.serial);
 
-      orderItems.push({
-        product: product._id,
-        quantity: qtyRequested,
-        serials,
-        price: itemPrice,
-        gstAmount: itemGst,
-        shippingCharge: itemShipping,
-        status: "Processing",
-      });
+      if (isB2BWarehouse) {
+        // For B2B warehouse orders, don't mark as sold, just assign to queue
+        orderItems.push({
+          product: product._id,
+          quantity: qtyRequested,
+          serials,
+          price: itemPrice,
+          gstAmount: itemGst,
+          shippingCharge: itemShipping,
+          status: "In Queue",
+        });
+      } else {
+        // For all other orders, mark as sold
+        await product.sell(qtyRequested, "temp_order_id");
+
+        orderItems.push({
+          product: product._id,
+          quantity: qtyRequested,
+          serials,
+          price: itemPrice,
+          gstAmount: itemGst,
+          shippingCharge: itemShipping,
+          status: "Processing",
+        });
+      }
     }
 
     const totalAmount = subTotal + totalGst + totalShipping;

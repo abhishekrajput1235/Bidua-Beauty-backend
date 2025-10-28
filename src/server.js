@@ -1,5 +1,8 @@
 const express = require('express');
 const dotenv = require('dotenv');
+
+dotenv.config(); // only once
+
 const cors = require('cors');
 const connectDB = require('./config/db');
 const userRoutes = require('./routes/userRoutes')
@@ -11,8 +14,6 @@ const walletRoutes = require('./routes/walletRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const paymentHistoryRoutes = require('./routes/paymentHistoryRoutes');
 const path = require("path");
-
-dotenv.config(); // only once
 
 const app = express();
 

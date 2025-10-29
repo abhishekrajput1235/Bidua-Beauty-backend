@@ -2,7 +2,9 @@ const Order = require("../models/Order");
 const mongoose = require("mongoose");
 const Product = require("../models/Products");
 const User = require("../models/Users");
+const PaymentHistory = require("../models/PaymentsHistory");
 const { razorpayInstance } = require("../config/razorpay");
+const crypto = require("crypto");
 
 
 
@@ -116,6 +118,14 @@ const createOrder = async (req, res) => {
     }
 
     const totalAmount = subTotal + totalGst + totalShipping;
+
+    // B2B minimum order value check
+    if (user.role === "b2b" && totalAmount < 20000) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ message: "B2B users must have a minimum order value of ₹20,000." });
+    }
+
     const orderLevelStatus = normalizedPaymentMethod === "COD" ? "Processing" : "Pending Payment";
 
     const orderData = {
@@ -148,6 +158,21 @@ const createOrder = async (req, res) => {
 
     const order = new Order(orderData);
     await order.save({ session });
+
+    // Create a pending payment history record
+    if (order.payment.razorpayOrderId) {
+      const paymentRecord = new PaymentHistory({
+        user: userId,
+        order: order._id,
+        paymentFor: "product",
+        amount: totalAmount,
+        currency: "INR",
+        paymentMethod: "Razorpay",
+        paymentStatus: "pending",
+        transactionId: order.payment.razorpayOrderId,
+      });
+      await paymentRecord.save({ session });
+    }
 
     // Replace temp_order_id with real order _id in product stock history
     for (const item of order.items) {
@@ -316,6 +341,53 @@ const updateProductStatusInOrder = async (req, res) => {
 };
 
 
+const verifyOrderPayment = async (req, res) => {
+  const crypto = require("crypto");
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return res.status(400).json({ message: "Missing Razorpay payment details" });
+  }
+
+  const body = razorpay_order_id + "|" + razorpay_payment_id;
+
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(body.toString())
+    .digest("hex");
+
+  const isAuthentic = expectedSignature === razorpay_signature;
+
+  if (isAuthentic) {
+    try {
+      const order = await Order.findOne({ "payment.razorpayOrderId": razorpay_order_id });
+
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      order.payment.paymentId = razorpay_payment_id;
+      order.payment.status = "Completed";
+      order.orderStatus = "Processing";
+      await order.save();
+
+      // Update the payment history record
+      const paymentRecord = await PaymentHistory.findOne({ transactionId: razorpay_order_id });
+      if (paymentRecord) {
+        paymentRecord.paymentStatus = "success";
+        await paymentRecord.save();
+      }
+
+      res.status(200).json({ message: "Payment verified successfully", order });
+    } catch (error) {
+      console.error("Payment verification error:", error);
+      res.status(500).json({ message: "Server error during payment verification", error: error.message });
+    }
+  } else {
+    res.status(400).json({ message: "Invalid signature" });
+  }
+};
+
 module.exports = {
   createOrder,
   getUserOrders,
@@ -323,4 +395,5 @@ module.exports = {
   getOrderById,
   createBrppOrder,
   updateProductStatusInOrder,
+  verifyOrderPayment,
 };

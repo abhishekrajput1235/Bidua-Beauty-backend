@@ -1,66 +1,78 @@
-const Wallet = require("../models/Wallet");
-const User = require("../models/Users");
-const mongoose = require("mongoose");
+const Wallet = require('../models/Wallet');
+const User = require('../models/Users');
 
-// Get user's wallet
+// @desc    Get user's wallet
+// @route   GET /api/wallet
+// @access  Private
 const getWallet = async (req, res) => {
   try {
     const wallet = await Wallet.findOne({ user: req.user.id });
+
     if (!wallet) {
-      // If no wallet, create one
-      const newWallet = new Wallet({ user: req.user.id });
-      await newWallet.save();
-      // also save wallet reference in user model
-      const user = await User.findById(req.user.id);
-      user.wallet = newWallet._id;
-      await user.save();
-      return res.status(200).json(newWallet);
+      return res.status(404).json({ message: 'Wallet not found' });
     }
-    res.status(200).json(wallet);
+
+    res.json(wallet);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error(error.message);
+    res.status(500).send('Server Error');
   }
 };
 
-// Add funds to wallet
-const addFunds = async (req, res) => {
-  const { amount, description, transactionId } = req.body;
-  if (!amount || amount <= 0) {
-    return res.status(400).json({ message: "Invalid amount" });
-  }
-
-  const session = await mongoose.startSession();
-  session.startTransaction();
+// @desc    Add a transaction to the wallet
+// @route   POST /api/wallet/transactions
+// @access  Private (for now, can be restricted to admin)
+const addTransaction = async (req, res) => {
+  const { type, amount, description, method, orderId, status } = req.body;
 
   try {
-    const wallet = await Wallet.findOne({ user: req.user.id }).session(session);
+    let wallet = await Wallet.findOne({ user: req.user.id });
+
     if (!wallet) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(404).json({ message: "Wallet not found" });
+      // Create a new wallet if it doesn't exist
+      wallet = new Wallet({
+        user: req.user.id,
+      });
     }
 
-    wallet.balance += amount;
-    wallet.transactions.push({
+    const transactionData = {
+      type,
       amount,
-      type: "credit",
       description,
-      transactionId,
-    });
+      method,
+      orderId,
+      status,
+    };
 
-    await wallet.save({ session });
-    await session.commitTransaction();
-    session.endSession();
+    await wallet.addTransaction(transactionData);
 
-    res.status(200).json(wallet);
+    res.json(wallet);
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error(error.message);
+    res.status(500).send('Server Error');
+  }
+};
+
+// @desc    Get all transactions for the user's wallet
+// @route   GET /api/wallet/transactions
+// @access  Private
+const getWalletTransactions = async (req, res) => {
+  try {
+    const wallet = await Wallet.findOne({ user: req.user.id });
+
+    if (!wallet) {
+      return res.status(404).json({ message: 'Wallet not found' });
+    }
+
+    res.json(wallet.transactions);
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).send('Server Error');
   }
 };
 
 module.exports = {
   getWallet,
-  addFunds,
+  addTransaction,
+  getWalletTransactions,
 };

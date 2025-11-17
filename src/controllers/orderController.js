@@ -5,6 +5,7 @@ const User = require("../models/Users");
 const PaymentHistory = require("../models/PaymentsHistory");
 const { razorpayInstance } = require("../config/razorpay");
 const crypto = require("crypto");
+const Wallet = require("../models/Wallet");
 
 
 
@@ -40,6 +41,7 @@ const createOrder = async (req, res) => {
       if (s === "debit" || s === "debit card") return "Debit Card";
       if (s === "net" || s === "net banking") return "Net Banking";
       if (s === "cod" || s === "cashondelivery" || s === "cash on delivery") return "COD";
+      if (s === "wallet") return "Wallet";
       return "Other";
     }
 
@@ -120,7 +122,7 @@ const createOrder = async (req, res) => {
     const totalAmount = subTotal + totalGst + totalShipping;
 
     // B2B minimum order value check
-    if (user.role === "b2b" && totalAmount < 20000) {
+    if (user.role === "b2b" && totalAmount < 2000) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({ message: "B2B users must have a minimum order value of ₹20,000." });
@@ -158,6 +160,34 @@ const createOrder = async (req, res) => {
 
     const order = new Order(orderData);
     await order.save({ session });
+
+    if (user.role === "b2b" && normalizedPaymentMethod === "Wallet") {
+      let wallet = await Wallet.findOne({ user: userId }).session(session);
+      if (!wallet) {
+        // B2B users should ideally have a wallet created upon registration or role change.
+        // For now, we can create one if it doesn't exist.
+        wallet = new Wallet({ user: userId, balance: 0 });
+      }
+
+      if (wallet.balance < totalAmount) {
+        throw new Error(`Insufficient wallet balance. Wallet has ${wallet.balance}, but order requires ${totalAmount}.`);
+      }
+
+      wallet.balance -= totalAmount;
+
+      const transactionData = {
+        type: "debit",
+        amount: totalAmount,
+        description: `Payment for order #${order._id}`,
+        method: "wallet",
+        orderId: order._id,
+        status: "success",
+        balanceAfter: wallet.balance,
+      };
+
+      wallet.transactions.push(transactionData);
+      await wallet.save({ session });
+    }
 
     // Create a pending payment history record
     if (order.payment.razorpayOrderId) {

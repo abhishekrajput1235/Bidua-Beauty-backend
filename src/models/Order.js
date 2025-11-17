@@ -4,7 +4,7 @@ const paymentSchema = new mongoose.Schema(
   {
     method: {
       type: String,
-      enum: ["UPI", "Credit Card", "Debit Card", "Net Banking", "COD", "Other"],
+      enum: ["UPI", "Credit Card", "Debit Card", "Net Banking", "COD", "Wallet", "Other"],
       default: "COD",
     },
     status: {

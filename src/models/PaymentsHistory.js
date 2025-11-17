@@ -41,7 +41,8 @@ const PaymentHistorySchema = new Schema(
         "Debit Card",
         "Net Banking",
         "COD",
-        "Razorpay", // ✅ added here
+        "Razorpay",
+        "Wallet",
         "Other",
       ],
       required: true,

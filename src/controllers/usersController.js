@@ -1,4 +1,5 @@
 const User = require("../models/Users");
+const Wallet = require("../models/Wallet"); // Import Wallet model
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const sendEmail = require("../utils/email");
@@ -45,6 +46,17 @@ const registerUser = async (req, res) => {
       password,
       role: role || "user",
     });
+
+    // ✅ Create a wallet for the new user
+    const wallet = new Wallet({
+      user: user._id,
+    });
+    await wallet.save();
+
+    // ✅ Link wallet to user
+    user.wallet = wallet._id;
+    await user.save();
+
 
     return res.status(201).json({
       message: "User registered successfully",

@@ -4,7 +4,7 @@ const transactionSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["credit", "debit"],
+      enum: ["credit", "debit", "withdrawal"],
       required: true,
     },
     amount: {
@@ -18,7 +18,7 @@ const transactionSchema = new mongoose.Schema(
     },
     method: {
       type: String,
-      enum: ["razorpay", "cod", "refund", "manual", "reward", "adjustment"],
+      enum: ["razorpay", "cod", "refund", "manual", "reward", "adjustment", "withdrawal"],
       default: "manual",
     },
     orderId: {
@@ -27,7 +27,7 @@ const transactionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["success", "pending", "failed"],
+      enum: ["success", "pending", "failed", "approved", "rejected"],
       default: "success",
     },
     balanceAfter: {
@@ -70,7 +70,7 @@ walletSchema.methods.addTransaction = async function (transactionData) {
 
   if (type === "credit") {
     this.balance += amount;
-  } else if (type === "debit") {
+  } else if (type === "debit" || type === "withdrawal") {
     if (this.balance < amount) throw new Error("Insufficient wallet balance");
     this.balance -= amount;
   }

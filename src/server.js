@@ -13,6 +13,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const paymentHistoryRoutes = require('./routes/paymentHistoryRoutes');
+const contactRoutes = require('./routes/contactRoutes');
 const path = require("path");
 
 const app = express();
@@ -28,7 +29,7 @@ app.use(cors());
 
 //Serve static uploads
 app.use("/upload", express.static(path.join(__dirname, "../upload")));
-console.log("Serving static files from:", path.join(__dirname, "../upload"));
+// console.log("Serving static files from:", path.join(__dirname, "../upload"));
 
 // Connect MongoDB
 connectDB()
@@ -44,6 +45,7 @@ app.use('/api/v1/order',orderRoutes);
 app.use('/api/v1/wallet', walletRoutes);
 app.use("/api/v1/payment", paymentRoutes);
 app.use("/api/v1/payment-history", paymentHistoryRoutes);
+app.use('/api/v1/contact', contactRoutes);
 
 
 // Test route
